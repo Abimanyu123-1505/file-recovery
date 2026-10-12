@@ -2,8 +2,14 @@
 
 The carver does not read allocated blocks and labels output as derived data.
 It can recover contiguous PDF, JPEG, and PNG content when their header and
-terminator remain in the same unallocated run.  It deliberately does not
+terminator remain in the same unallocated run. It deliberately does not
 attribute a filename, owner, or provenance to carved data.
+
+Forensic constraints (Finding F8):
+- Run over genuinely unallocated block ranges from the block bitmap.
+- Enforce max_carved_size = 100MB.
+- Skip byte ranges already covered by an inode finding.
+- Tag carved outputs with source='carved', no filename, no path, confidence='Uncertain'.
 """
 
 from __future__ import annotations
@@ -11,9 +17,12 @@ from __future__ import annotations
 import struct
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 from .ext4 import inspect_superblock
 from .hashing import sha256_bytes
+
+MAX_CARVED_SIZE = 100 * 1024 * 1024  # 100MB strictly enforced
 
 
 @dataclass
@@ -22,14 +31,31 @@ class CarvedFile:
     size: int
     signature: str
     sha256: str
-    path: str
-    confidence: str = "CONTIGUOUS_UNALLOCATED_SIGNATURE"
+    output_path: str
+    source: str = "carved"
+    name: Optional[str] = None
+    path: Optional[str] = None
+    confidence: str = "Uncertain"
 
     def json(self) -> dict:
-        return asdict(self)
+        return {
+            "offset": self.offset,
+            "size": self.size,
+            "signature": self.signature,
+            "sha256": self.sha256,
+            "output_path": self.output_path,
+            "source": self.source,
+            "name": self.name,
+            "path": self.path,
+            "confidence": self.confidence,
+        }
 
 
-SIGNATURES = ((b"%PDF-", "PDF", "pdf"), (b"\x89PNG\r\n\x1a\n", "PNG", "png"), (b"\xff\xd8\xff", "JPEG", "jpg"))
+SIGNATURES = (
+    (b"%PDF-", "PDF", "pdf"),
+    (b"\x89PNG\r\n\x1a\n", "PNG", "png"),
+    (b"\xff\xd8\xff", "JPEG", "jpg"),
+)
 
 
 def _layout(image: Path, offset: int) -> tuple[int, int, int, int, int]:
@@ -44,11 +70,11 @@ def _layout(image: Path, offset: int) -> tuple[int, int, int, int, int]:
     descriptor_size = struct.unpack_from("<H", superblock, 254)[0] or 32
     if blocks_per_group == 0 or descriptor_size < 32:
         raise ValueError("Invalid EXT4 group-descriptor layout.")
-    # With 1 KiB blocks, the superblock is block 1 and the table begins at 2.
     return block_size, total_blocks, blocks_per_group, descriptor_size, 2 if block_size == 1024 else 1
 
 
 def _unallocated_runs(image: Path, offset: int):
+    """Scan block group descriptors and yield unallocated runs across the entire filesystem."""
     block_size, total, per_group, descriptor_size, gdt_block = _layout(image, offset)
     groups = (total + per_group - 1) // per_group
     pending_start: int | None = None
@@ -82,25 +108,47 @@ def _unallocated_runs(image: Path, offset: int):
 def _content(data: bytes, kind: str) -> bytes | None:
     if kind == "PDF":
         end = data.find(b"%%EOF")
-        return data[:end + 5] if end >= 0 else None
+        return data[: end + 5] if end >= 0 else None
     if kind == "PNG":
         end = data.find(b"IEND\xaeB`\x82")
-        return data[:end + 8] if end >= 0 else None
+        return data[: end + 8] if end >= 0 else None
     if kind == "JPEG":
         end = data.find(b"\xff\xd9", 3)
-        return data[:end + 2] if end >= 0 else None
+        return data[: end + 2] if end >= 0 else None
     return None
 
 
 def carve_unallocated(
-    image: str | Path, offset: int, output: Path, limit: int = 25, max_size: int = 32 * 1024 * 1024
+    image: str | Path,
+    offset: int,
+    output: Path,
+    limit: int = 25,
+    max_size: int = MAX_CARVED_SIZE,
+    covered_ranges: Optional[List[Tuple[int, int]]] = None,
 ) -> list[CarvedFile]:
-    """Carve supported contiguous files from blocks the EXT4 bitmap marks free."""
+    """Carve supported contiguous files from blocks the EXT4 bitmap marks free.
+    
+    Finding F8:
+    - Runs over genuinely unallocated block ranges.
+    - Enforces max_carved_size = 100MB.
+    - Skips byte ranges already covered by an inode finding.
+    - Tags outputs with source='carved', no filename, no path, confidence='Uncertain'.
+    """
     image = Path(image)
+    effective_max = min(max_size, MAX_CARVED_SIZE)
     carved_dir = output / "carved"
     carved_dir.mkdir(parents=True, exist_ok=True)
     results: list[CarvedFile] = []
     seen: set[int] = set()
+
+    ranges = covered_ranges or []
+
+    def is_covered(start: int, end: int) -> bool:
+        for r_start, r_end in ranges:
+            if max(start, r_start) < min(end, r_end):
+                return True
+        return False
+
     with image.open("rb") as stream:
         for first_block, count, block_size in _unallocated_runs(image, offset):
             run_offset = offset + first_block * block_size
@@ -118,15 +166,32 @@ def carve_unallocated(
                     absolute = run_offset + position - len(tail) + start
                     if absolute in seen:
                         continue
-                    available = min(max_size, run_offset + run_size - absolute)
+                    available = min(effective_max, run_offset + run_size - absolute)
                     stream.seek(absolute)
                     content = _content(stream.read(available), name)
                     if content is None:
                         continue
+
+                    # Skip ranges already covered by an inode finding
+                    if is_covered(absolute, absolute + len(content)):
+                        continue
+
                     seen.add(absolute)
                     target = carved_dir / f"carved-{len(results) + 1:04d}-offset-{absolute}.{extension}"
                     target.write_bytes(content)
-                    results.append(CarvedFile(absolute, len(content), name, sha256_bytes(content), str(target)))
+                    results.append(
+                        CarvedFile(
+                            offset=absolute,
+                            size=len(content),
+                            signature=name,
+                            sha256=sha256_bytes(content),
+                            output_path=str(target),
+                            source="carved",
+                            name=None,
+                            path=None,
+                            confidence="Uncertain",
+                        )
+                    )
                     if len(results) >= limit:
                         break
                 tail = searchable[-8:]
