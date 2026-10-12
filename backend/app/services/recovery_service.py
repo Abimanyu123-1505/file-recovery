@@ -88,6 +88,7 @@ def recover_files(
             status_map = {
                 "FULL": "FULL",
                 "PARTIAL": "PARTIAL",
+                "partial_unwritten": "partial_unwritten",
                 "not_recoverable": "not_recoverable",
             }
             status = status_map.get(v.get("status", ""), "FAILED")
