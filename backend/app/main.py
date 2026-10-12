@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
-from .database import Case, Recovery, Scan, SessionLocal, get_db, init_db
+from .database import Case, Recovery, Scan, SessionLocal, get_db, init_db, record_audit
 from .schemas import (
     CaseCreate,
     CaseOut,
@@ -342,6 +342,14 @@ def _build_report_data(scan_id: int, payload: ReportRequest, db: Session) -> dic
 @app.post("/api/reports/{scan_id}/json")
 def report_json(scan_id: int, payload: ReportRequest, db: Session = Depends(get_db)):
     data = _build_report_data(scan_id, payload, db)
+    examiner = data.get("case", {}).get("examiner_name")
+    record_audit(
+        db,
+        action="report_export",
+        examiner_id=examiner,
+        target=f"scan:{scan_id}",
+        details=f"Exported JSON report ({payload.report_type})",
+    )
     return data
 
 
@@ -349,6 +357,14 @@ def report_json(scan_id: int, payload: ReportRequest, db: Session = Depends(get_
 def report_docx(scan_id: int, payload: ReportRequest, db: Session = Depends(get_db)):
     data = _build_report_data(scan_id, payload, db)
     docx_bytes = generate_docx(data)
+    examiner = data.get("case", {}).get("examiner_name")
+    record_audit(
+        db,
+        action="report_export",
+        examiner_id=examiner,
+        target=f"scan:{scan_id}",
+        details=f"Exported DOCX report ({payload.report_type})",
+    )
     case_no = data["case"].get("case_number", "case").replace("/", "-").replace(" ", "_")
     filename = f"report_{case_no}_{scan_id}.docx"
     return Response(

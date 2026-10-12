@@ -58,11 +58,42 @@ def detect_format(path: str | Path) -> str:
     return STREAM_EXTENSIONS.get(suffix, "unknown")
 
 
-def open_evidence(path: str | Path, stream: str | Path | None = None) -> EvidenceSource:
-    """Validate an immutable evidence input and choose its analysis stream."""
+def open_evidence(
+    path: str | Path,
+    stream: str | Path | None = None,
+    output_dir: str | Path | None = None,
+    db_path: str | Path | None = None,
+) -> EvidenceSource:
+    """Validate an immutable evidence input and choose its analysis stream.
+    
+    Finding I2: Verify read-only access and reject paths colliding with
+    the output directory or the database.
+    """
+    import os
+
     original = Path(path)
     if not original.is_file():
         raise EvidenceError(f"Evidence file not found: {original}")
+
+    orig_resolved = original.resolve()
+
+    if output_dir is not None:
+        out_resolved = Path(output_dir).resolve()
+        if orig_resolved == out_resolved or out_resolved in orig_resolved.parents:
+            raise EvidenceError("Evidence path cannot reside within or match the output directory.")
+
+    if db_path is not None:
+        db_resolved = Path(db_path).resolve()
+        if orig_resolved == db_resolved:
+            raise EvidenceError("Evidence path cannot match the workbench database file.")
+
+    # Verify evidence file descriptor can be opened read-only
+    try:
+        fd = os.open(str(original), os.O_RDONLY)
+        os.close(fd)
+    except Exception as exc:
+        raise EvidenceError(f"Cannot verify read-only access to evidence file: {exc}")
+
     fmt = detect_format(original)
     if stream is not None:
         raw_stream = Path(stream)

@@ -15,7 +15,7 @@ if str(_src) not in sys.path:
 
 from sqlalchemy.orm import Session
 
-from ..database import Recovery, Scan
+from ..database import Recovery, Scan, record_audit
 
 
 def _make_exhibit_number(index: int) -> str:
@@ -129,6 +129,15 @@ def recover_files(
             db.add(rec)
             db.commit()
             db.refresh(rec)
+
+            # Finding I3: Record recovery event in audit ledger
+            record_audit(
+                db,
+                action="file_recover",
+                target=f"inode:{inode}",
+                output_hash=sha256,
+                details=f"Scan {scan_id} recovered inode {inode} to {output_path} (status: {status})",
+            )
 
             results.append({
                 "id": rec.id,

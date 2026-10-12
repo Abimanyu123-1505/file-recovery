@@ -18,7 +18,7 @@ if str(_src) not in sys.path:
 
 from sqlalchemy.orm import Session
 
-from ..database import Recovery, Scan, SessionLocal
+from ..database import Recovery, Scan, SessionLocal, record_audit
 
 # ---------------------------------------------------------------------------
 # Stage mapping: internal stage names → plain-language phase labels
@@ -35,6 +35,12 @@ _SCAN_CANCELLED: dict[int, bool] = {}
 
 def cancel_scan(scan_id: int) -> None:
     _SCAN_CANCELLED[scan_id] = True
+    try:
+        db = SessionLocal()
+        record_audit(db, "scan_cancel", target=str(scan_id), details=f"Scan {scan_id} cancellation requested")
+        db.close()
+    except Exception:
+        pass
 
 
 def _db() -> Session:
@@ -152,12 +158,29 @@ def _run_scan_sync(scan_id: int, evidence_path: str, case_output_dir: str) -> No
             return
 
         try:
-            evidence = open_evidence(evidence_path)
+            evidence = open_evidence(evidence_path, output_dir=case_output_dir)
         except Exception as exc:
             _set_status(scan_id, "failed", db, f"Could not open evidence file: {exc}")
             return
 
-        pre_hash = sha256_file(evidence_path)
+        # Finding I3: Audit ledger scan start record
+        try:
+            record_audit(db, "scan_start", target=evidence_path, details=f"Scan {scan_id} started")
+        except Exception as exc:
+            _set_status(scan_id, "failed", db, f"Audit ledger write failed: {exc}")
+            return
+
+        # Finding I1: Chunked hashing with cancellation checks
+        try:
+            pre_hash = sha256_file(
+                evidence_path,
+                chunk_size=1024 * 1024,
+                check_cancelled=lambda: bool(_SCAN_CANCELLED.get(scan_id)),
+            )
+        except RuntimeError:
+            _set_status(scan_id, "cancelled", db)
+            return
+
         scan = db.get(Scan, scan_id)
         if scan:
             scan.evidence_sha256_pre = pre_hash
@@ -255,7 +278,15 @@ def _run_scan_sync(scan_id: int, evidence_path: str, case_output_dir: str) -> No
         # ── Stage 4: Post-hash integrity check ───────────────────────────────
         _update_stage(scan_id, "integrity", db)
 
-        post_hash = sha256_file(evidence_path)
+        try:
+            post_hash = sha256_file(
+                evidence_path,
+                chunk_size=1024 * 1024,
+                check_cancelled=lambda: bool(_SCAN_CANCELLED.get(scan_id)),
+            )
+        except RuntimeError:
+            _set_status(scan_id, "cancelled", db)
+            return
         integrity_ok = pre_hash == post_hash
 
         candidates = all_candidates[:200]

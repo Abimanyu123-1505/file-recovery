@@ -103,6 +103,55 @@ class Recovery(Base):
     scan = relationship("Scan", back_populates="recoveries")
 
 
+class AuditEntry(Base):
+    __tablename__ = "audit_ledger"
+
+    id = Column(Integer, primary_key=True, index=True)
+    examiner_id = Column(String(255), nullable=True)
+    timestamp = Column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+    action = Column(String(64), nullable=False)
+    target = Column(String(1024), nullable=True)
+    input_hash = Column(String(64), nullable=True)
+    output_hash = Column(String(64), nullable=True)
+    details = Column(Text, nullable=True)
+
+
+def record_audit(
+    db: Session,
+    action: str,
+    examiner_id: str | None = None,
+    target: str | None = None,
+    input_hash: str | None = None,
+    output_hash: str | None = None,
+    details: str | None = None,
+) -> AuditEntry:
+    """Write an immutable, append-only record to the audit ledger (Finding I3).
+    
+    If the ledger write fails, the action MUST fail (fail-closed).
+    """
+    try:
+        entry = AuditEntry(
+            examiner_id=examiner_id,
+            timestamp=datetime.now(timezone.utc),
+            action=action,
+            target=target,
+            input_hash=input_hash,
+            output_hash=output_hash,
+            details=details,
+        )
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return entry
+    except Exception as exc:
+        db.rollback()
+        raise RuntimeError(f"Fail-closed: Audit ledger write failed for action '{action}': {exc}") from exc
+
+
 def get_db():
     db = SessionLocal()
     try:
