@@ -167,36 +167,86 @@ def _run_scan_sync(scan_id: int, evidence_path: str, case_output_dir: str) -> No
             _set_status(scan_id, "cancelled", db)
             return
 
-        # ── Stage 2: Open filesystem ─────────────────────────────────────────
+        # ── Stage 2: Open filesystem & discover partitions ──────────────────
         _update_stage(scan_id, "reading_fs", db)
 
         try:
-            from ext4recover.tsk import open_fs
+            from ext4recover.tsk import open_fs, deleted_candidates, deleted_directory_entries
+            from ext4recover.partitions import find_filesystem_offsets
+            from ext4recover.ext4 import inspect_superblock
+
             stream = evidence.analysis_path if not evidence.direct_ewf else None
             if stream is None:
                 _set_status(scan_id, "failed", db, "E01/EWF requires ewfmount and --stream support via the CLI.")
                 return
-            fs = open_fs(stream, 0, ewf=evidence.direct_ewf)
+
+            offsets = find_filesystem_offsets(stream)
         except Exception as exc:
-            _set_status(scan_id, "failed", db, f"Could not read file system: {exc}")
+            _set_status(scan_id, "failed", db, f"Could not inspect evidence partitions: {exc}")
             return
 
         if _SCAN_CANCELLED.get(scan_id):
             _set_status(scan_id, "cancelled", db)
             return
 
-        # ── Stage 3: Find deleted files ──────────────────────────────────────
+        # ── Stage 3: Find deleted files across partitions ────────────────────
         _update_stage(scan_id, "searching", db)
 
-        try:
-            from ext4recover.tsk import deleted_candidates, deleted_directory_entries
-            named_entries = deleted_directory_entries(fs, limit=200)
-            inode_candidates = deleted_candidates(fs, limit=200)
-            known_inodes = {c.inode for c in named_entries}
-            merged = named_entries + [c for c in inode_candidates if c.inode not in known_inodes]
-        except Exception as exc:
-            _set_status(scan_id, "failed", db, f"Error scanning for deleted files: {exc}")
-            return
+        all_candidates: list[dict] = []
+        fs_limitations: list[str] = []
+
+        for fs_off in offsets:
+            try:
+                sb_info = inspect_superblock(stream, fs_off)
+                fs_label = sb_info.get("filesystem", "EXT4")
+                unsupported = sb_info.get("unsupported_incompat_features", [])
+                if unsupported:
+                    fs_limitations.append(
+                        f"Partition at offset {fs_off} uses unsupported features: {', '.join(unsupported)}."
+                    )
+
+                fs = open_fs(stream, fs_off, ewf=evidence.direct_ewf)
+                named_entries = deleted_directory_entries(fs, limit=200)
+                inode_candidates = deleted_candidates(fs, limit=200)
+                known_inodes = {c.inode for c in named_entries}
+                merged = named_entries + [c for c in inode_candidates if c.inode not in known_inodes]
+
+                for candidate in merged:
+                    src = _name_source(candidate)
+                    if src == "dir_entry":
+                        name_confidence = "confirmed"
+                        name_confidence_label = "Name confirmed"
+                        name_confidence_note = "The file name was found in a surviving directory record."
+                    else:
+                        name_confidence = "uncertain"
+                        name_confidence_label = "Original name not available"
+                        name_confidence_note = "No directory record survived. The original name cannot be determined."
+
+                    can_recover = bool(candidate.size and candidate.size > 0)
+                    recoverable = 1 if can_recover else 0
+                    not_recoverable_reason = None if can_recover else "inode size and data pointers were cleared by the filesystem"
+
+                    all_candidates.append({
+                        "inode": candidate.inode,
+                        "fs_offset": fs_off,
+                        "filesystem": fs_label,
+                        "category": "deleted",
+                        "size": candidate.size,
+                        "allocated": candidate.allocated,
+                        "file_type": candidate.file_type,
+                        "friendly_type": _friendly_type(candidate.file_type, getattr(candidate, "name", None)),
+                        "name": getattr(candidate, "name", None),
+                        "path": getattr(candidate, "path", None),
+                        "name_source": src,
+                        "name_confidence": name_confidence,
+                        "name_confidence_label": name_confidence_label,
+                        "name_confidence_note": name_confidence_note,
+                        "can_recover": can_recover,
+                        "recoverable": recoverable,
+                        "not_recoverable_reason": not_recoverable_reason,
+                    })
+            except Exception:
+                continue
 
         if _SCAN_CANCELLED.get(scan_id):
             _set_status(scan_id, "cancelled", db)
@@ -208,36 +258,7 @@ def _run_scan_sync(scan_id: int, evidence_path: str, case_output_dir: str) -> No
         post_hash = sha256_file(evidence_path)
         integrity_ok = pre_hash == post_hash
 
-        # Build enriched candidate list
-        candidates: list[dict] = []
-        sha_set: dict[int, str] = {}  # inode → sha256 placeholder
-        
-        for candidate in merged[:200]:
-            src = _name_source(candidate)
-            if src == "dir_entry":
-                name_confidence = "confirmed"
-                name_confidence_label = "Name confirmed"
-                name_confidence_note = "The file name was found in a surviving directory record."
-            else:
-                name_confidence = "uncertain"
-                name_confidence_label = "Original name not available"
-                name_confidence_note = "No directory record survived. The original name cannot be determined."
-
-            candidates.append({
-                "inode": candidate.inode,
-                "size": candidate.size,
-                "allocated": candidate.allocated,
-                "file_type": candidate.file_type,
-                "friendly_type": _friendly_type(candidate.file_type, getattr(candidate, "name", None)),
-                "name": getattr(candidate, "name", None),
-                "path": getattr(candidate, "path", None),
-                "name_source": src,
-                "name_confidence": name_confidence,
-                "name_confidence_label": name_confidence_label,
-                "can_recover": bool(candidate.size and candidate.size > 0),
-                "recoverable": 1 if (candidate.size and candidate.size > 0) else 0,
-                "not_recoverable_reason": None if (candidate.size and candidate.size > 0) else "inode size and data pointers were cleared by the filesystem",
-            })
+        candidates = all_candidates[:200]
 
         scan = db.get(Scan, scan_id)
         if scan:
