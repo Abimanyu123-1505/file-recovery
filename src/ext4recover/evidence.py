@@ -53,7 +53,7 @@ def detect_format(path: str | Path) -> str:
     suffix = Path(path).suffix.lower()
     if suffix in RAW_EXTENSIONS:
         return "raw"
-    if suffix in EWF_EXTENSIONS or (len(suffix) == 4 and suffix.startswith(".e") and suffix[1:].isdigit()):
+    if suffix in EWF_EXTENSIONS or (len(suffix) == 4 and suffix.startswith(".e") and suffix[2:].isdigit()):
         return "E01/EWF"
     return STREAM_EXTENSIONS.get(suffix, "unknown")
 

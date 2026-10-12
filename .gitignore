@@ -6,3 +6,6 @@ ext4-recovery-output/
 ext4-e01-demo-output/
 ext4recover-results/
 .venv/
+workbench.db
+case/
+*.egg-info/
