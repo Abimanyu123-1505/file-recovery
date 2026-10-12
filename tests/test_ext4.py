@@ -13,6 +13,7 @@ def image(magic=0xEF53):
     struct.pack_into("<H", raw, 1024 + 56, magic)
     struct.pack_into("<I", raw, 1024 + 24, 2)
     struct.pack_into("<H", raw, 1024 + 88, 256)
+    struct.pack_into("<I", raw, 1024 + 96, 0x0040)  # INCOMPAT_EXTENTS (EXT4)
     return bytes(raw)
 
 
