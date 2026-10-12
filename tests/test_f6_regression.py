@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 from datetime import datetime, timezone
 import pytest
 
-from backend.app.services.report_builder import build_report
+from app.services.report_builder import build_report
 
 
 def test_f6_honest_candidate_counts():

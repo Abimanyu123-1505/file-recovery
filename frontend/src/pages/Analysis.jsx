@@ -54,6 +54,7 @@ export default function Analysis() {
             case_id: state.caseId,
             evidence_path: state.evidencePath,
             report_profile: state.reportProfile || 'general',
+            cpu_profile: state.cpuProfile || 'laptop',
           });
           scanId = scan.id;
           dispatch({ type: 'SET_SCAN', payload: scan });

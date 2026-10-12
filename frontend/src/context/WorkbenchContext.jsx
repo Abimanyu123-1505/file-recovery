@@ -20,6 +20,7 @@ const initialState = {
   recentPaths: [],
 
   // Step 3
+  cpuProfile: 'laptop', // 'laptop' | 'desktop'
   scanId: null,
   scanStatus: null,
   scanResult: null,
@@ -51,6 +52,8 @@ function reducer(state, action) {
       return { ...state, evidencePath: action.payload };
     case 'SET_EVIDENCE_CHECK':
       return { ...state, evidenceCheck: action.payload };
+    case 'SET_CPU_PROFILE':
+      return { ...state, cpuProfile: action.payload };
     case 'ADD_RECENT_PATH': {
       const recent = [action.payload, ...state.recentPaths.filter(p => p !== action.payload)].slice(0, 5);
       return { ...state, recentPaths: recent };

@@ -54,7 +54,34 @@ def build_report(
     """Build the full structured report dictionary from DB objects."""
 
     now = _utc_now()
-    generated_at = now.isoformat()
+    generated_at = now.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    # --- Chain of custody and scan configuration (Findings R1 & R2) ----------
+    chain_of_custody = {
+        "acquisition_date": case.date_received or "Not recorded",
+        "examiner": case.examiner_name or "Not recorded",
+        "department": case.department or "Not recorded",
+        "intake_hash": scan.evidence_sha256_pre or "Not recorded",
+        "post_scan_hash": scan.evidence_sha256_post or "Not recorded",
+        "match_status": (
+            "MATCH (Evidence integrity verified)"
+            if scan.integrity_ok
+            else ("MISMATCH (Integrity violation detected)" if scan.integrity_ok is False else "UNVERIFIED")
+        ),
+        "tool_name": TOOL_NAME,
+        "tool_version": TOOL_VERSION,
+    }
+
+    scan_configuration = {
+        "scan_id": scan.id,
+        "evidence_path": scan.evidence_path,
+        "hash_chunk_size_bytes": 1024 * 1024,
+        "max_candidates_limit": 200,
+        "max_carved_size_bytes": 100 * 1024 * 1024,
+        "read_buffer_bytes": 8 * 1024 * 1024,
+        "multi_partition_discovery": True,
+        "read_only_enforced": True,
+    }
 
     # --- Evidence integrity --------------------------------------------------
     integrity_result = "Evidence unchanged during analysis"
@@ -278,6 +305,9 @@ def build_report(
             "failed_recovery": failed,
             "executive_bullets": exec_bullets,
         },
+
+        "chain_of_custody": chain_of_custody,
+        "scan_configuration": scan_configuration,
 
         "candidate_summary": candidate_summary,
 

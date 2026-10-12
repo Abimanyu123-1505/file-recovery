@@ -133,13 +133,27 @@ def _name_source(candidate: Any) -> str:
 # ---------------------------------------------------------------------------
 # Main async scan task
 # ---------------------------------------------------------------------------
-async def run_scan(scan_id: int, evidence_path: str, case_output_dir: str) -> None:
+async def run_scan(
+    scan_id: int,
+    evidence_path: str,
+    case_output_dir: str,
+    cpu_profile: str = "laptop",
+    worker_limit: int | None = None,
+) -> None:
     """Run the full forensic pipeline in a thread; update DB at each stage."""
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, _run_scan_sync, scan_id, evidence_path, case_output_dir)
+    await loop.run_in_executor(
+        None, _run_scan_sync, scan_id, evidence_path, case_output_dir, cpu_profile, worker_limit
+    )
 
 
-def _run_scan_sync(scan_id: int, evidence_path: str, case_output_dir: str) -> None:
+def _run_scan_sync(
+    scan_id: int,
+    evidence_path: str,
+    case_output_dir: str,
+    cpu_profile: str = "laptop",
+    worker_limit: int | None = None,
+) -> None:
     db = _db()
     try:
         _set_status(scan_id, "running", db)

@@ -218,7 +218,15 @@ async def start_scan(payload: ScanRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(scan)
     output_dir = str(Path("case") / f"scan_{scan.id}")
-    asyncio.create_task(run_scan(scan.id, str(p.resolve()), output_dir))
+    asyncio.create_task(
+        run_scan(
+            scan.id,
+            str(p.resolve()),
+            output_dir,
+            cpu_profile=payload.cpu_profile,
+            worker_limit=payload.worker_limit,
+        )
+    )
     return scan
 
 

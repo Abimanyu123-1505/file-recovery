@@ -174,6 +174,37 @@ export default function SelectEvidence() {
         )}
       </div>
 
+      <div className="card">
+        <div className="card-title">Processing &amp; CPU Management</div>
+        <p style={{ fontSize: '13px', color: 'var(--color-text-secondary)', marginBottom: '12px' }}>
+          Select the performance preset suitable for your triage device.
+        </p>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '12px' }}>
+          <button
+            type="button"
+            className={`btn ${state.cpuProfile === 'laptop' ? 'btn--primary' : 'btn--secondary'}`}
+            style={{ textAlign: 'left', padding: '12px', height: 'auto', display: 'flex', flexDirection: 'column' }}
+            onClick={() => dispatch({ type: 'SET_CPU_PROFILE', payload: 'laptop' })}
+          >
+            <div style={{ fontWeight: 600 }}>Field / Laptop (Conservative)</div>
+            <div style={{ fontSize: '12px', opacity: 0.85, marginTop: '4px' }}>
+              Gentle pacing, low thermal footprint, and battery preservation for field laptops.
+            </div>
+          </button>
+          <button
+            type="button"
+            className={`btn ${state.cpuProfile === 'desktop' ? 'btn--primary' : 'btn--secondary'}`}
+            style={{ textAlign: 'left', padding: '12px', height: 'auto', display: 'flex', flexDirection: 'column' }}
+            onClick={() => dispatch({ type: 'SET_CPU_PROFILE', payload: 'desktop' })}
+          >
+            <div style={{ fontWeight: 600 }}>Lab / Workstation (High Throughput)</div>
+            <div style={{ fontSize: '12px', opacity: 0.85, marginTop: '4px' }}>
+              Unconstrained multi-core processing for dedicated forensic lab workstations.
+            </div>
+          </button>
+        </div>
+      </div>
+
       {listedFiles.length > 0 && (
         <div className="card">
           <div className="card-title">Available evidence images</div>

@@ -30,6 +30,8 @@ class ScanRequest(BaseModel):
     case_id: int
     evidence_path: str
     report_profile: str = "general"  # "general" | "lab02"
+    cpu_profile: str = "laptop"  # "laptop" | "desktop"
+    worker_limit: Optional[int] = None
 
 
 class ScanOut(BaseModel):

@@ -205,17 +205,30 @@ def generate_docx(report: dict[str, Any]) -> bytes:
     _add_table_with_headers(doc, ["Check", "Value"], fp_rows)
 
     _add_heading(doc, "Chain of Custody", level=2)
-    _add_para(doc, "Complete the table below with the physical custody record for this evidence item.")
-    coc_rows = [
-        ["", "", "", ""],
-        ["", "", "", ""],
-        ["", "", "", ""],
+    coc = report.get("chain_of_custody", {})
+    coc_table = [
+        ["Acquisition / Received Date", xml_safe(coc.get("acquisition_date", "Not recorded"))],
+        ["Forensic Examiner", xml_safe(coc.get("examiner", "Not recorded"))],
+        ["Department / Unit", xml_safe(coc.get("department", "Not recorded"))],
+        ["Intake Hash (SHA-256)", xml_safe(coc.get("intake_hash", "Not recorded"))],
+        ["Post-Scan Hash (SHA-256)", xml_safe(coc.get("post_scan_hash", "Not recorded"))],
+        ["Match Status", xml_safe(coc.get("match_status", "UNVERIFIED"))],
+        ["Tool & Version", f"{TOOL_NAME} v{TOOL_VERSION}"],
     ]
-    _add_table_with_headers(
-        doc,
-        ["Released by", "Received by", "Date / Time", "Purpose"],
-        coc_rows,
-    )
+    _add_table_with_headers(doc, ["Chain of Custody Record", "Details"], coc_table)
+
+    _add_heading(doc, "Scan Configuration", level=2)
+    cfg = report.get("scan_configuration", {})
+    cfg_table = [
+        ["Scan Identification", str(cfg.get("scan_id", "N/A"))],
+        ["Evidence Target Path", xml_safe(cfg.get("evidence_path", "N/A"))],
+        ["Hash Chunk Size", f"{cfg.get('hash_chunk_size_bytes', 0) // 1024} KiB"],
+        ["Candidate Limit", str(cfg.get("max_candidates_limit", 200))],
+        ["Max Carved File Size", f"{cfg.get('max_carved_size_bytes', 0) // (1024 * 1024)} MiB"],
+        ["Read Buffer Boundary", f"{cfg.get('read_buffer_bytes', 0) // (1024 * 1024)} MiB"],
+        ["Read-Only Enforced", "YES" if cfg.get("read_only_enforced") else "NO"],
+    ]
+    _add_table_with_headers(doc, ["Scan Configuration Parameter", "Setting"], cfg_table)
     _page_break(doc)
 
     # ===========================================================================
