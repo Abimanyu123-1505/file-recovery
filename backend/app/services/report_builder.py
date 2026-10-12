@@ -101,6 +101,12 @@ def build_report(
             "confidence": confidence,
             "confidence_reason": confidence_reason,
             "duplicate_of_inode": rec.duplicate_of_inode,
+            "is_duplicate": bool(rec.duplicate_of_inode),
+            "duplicate_note": (
+                f"Identical content to previously recovered file record {rec.duplicate_of_inode} (SHA-256 match)."
+                if rec.duplicate_of_inode
+                else None
+            ),
         })
 
     # --- Candidate summary (Finding F6: honest counts & fact/inference labels) ---

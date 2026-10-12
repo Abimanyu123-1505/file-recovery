@@ -80,6 +80,21 @@ def recover_files(
 
             if sha256 and sha256 not in sha_seen:
                 sha_seen[sha256] = inode
+            elif duplicate_of and sha256:
+                # Content identical to earlier inode; reuse link to conserve disk space
+                original_path = output_base / f"inode-{duplicate_of}.bin"
+                if original_path.exists() and output_path.exists() and output_path != original_path:
+                    try:
+                        output_path.unlink()
+                        try:
+                            output_path.hardlink_to(original_path)
+                        except Exception:
+                            try:
+                                output_path.symlink_to(original_path)
+                            except Exception:
+                                output_path.write_text(f"DUPLICATE OF INODE {duplicate_of}\nSHA-256: {sha256}\n")
+                    except Exception:
+                        pass
 
             name = candidate.get("name")
             file_path = candidate.get("path")
