@@ -234,9 +234,26 @@ def generate_docx(report: dict[str, Any]) -> bytes:
     # 8. FINDINGS
     # ===========================================================================
     _add_heading(doc, "Findings", level=1)
+
+    cand_summary = report.get("candidate_summary")
+    if cand_summary:
+        _add_heading(doc, "8.1 Scanned Candidates & Forensic Classification", level=2)
+        _add_para(doc, "The table below details all candidate records scanned, distinguishing direct facts from tool inferences.")
+        cand_rows = []
+        for key, item in cand_summary.items():
+            type_label = "Fact" if item.get("type") == "fact" else "Tool Inference"
+            cand_rows.append([
+                xml_safe(item.get("label", key)),
+                str(item.get("count", 0)),
+                type_label,
+                xml_safe(item.get("description", "")),
+            ])
+        _add_table_with_headers(doc, ["Category", "Count", "Classification", "Description"], cand_rows)
+        doc.add_paragraph()
+
     findings = report.get("findings", [])
 
-    _add_heading(doc, "8.1 Deleted File Records", level=2)
+    _add_heading(doc, "8.2 Recovered File Findings", level=2)
     if not findings:
         _add_para(doc, "No files were recovered during this analysis.")
     else:

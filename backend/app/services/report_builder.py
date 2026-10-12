@@ -103,18 +103,67 @@ def build_report(
             "duplicate_of_inode": rec.duplicate_of_inode,
         })
 
-    # --- Candidate summary --------------------------------------------------
-    total_candidates = len(candidates)
-    recoverable = sum(1 for c in candidates if c.get("can_recover"))
+    # --- Candidate summary (Finding F6: honest counts & fact/inference labels) ---
+    total_scanned = len(candidates)
+    valid_deletion_records = sum(
+        1 for c in candidates if c.get("category") != "orphan/uncertain" and (c.get("links_count", 0) == 0)
+    )
+    orphan_uncertain_records = sum(
+        1 for c in candidates if c.get("category") == "orphan/uncertain"
+    )
+    surviving_extents = sum(
+        1 for c in candidates if c.get("recoverable", 1) == 1 and c.get("can_recover")
+    )
+    cleared_pointers = sum(
+        1 for c in candidates if c.get("recoverable", 1) == 0 or not c.get("can_recover")
+    )
+
+    candidate_summary = {
+        "total_scanned": {
+            "count": total_scanned,
+            "label": "Total candidates scanned",
+            "type": "fact",
+            "description": "Total number of unallocated inode records inspected during analysis.",
+        },
+        "valid_deletion_records": {
+            "count": valid_deletion_records,
+            "label": "Valid deletion records",
+            "type": "tool_inference",
+            "description": "Records with zero link count and plausible deletion timestamps.",
+        },
+        "orphan_uncertain_records": {
+            "count": orphan_uncertain_records,
+            "label": "Orphan / uncertain records",
+            "type": "tool_inference",
+            "description": "Records with suspicious deletion timestamps or orphan-chain markers.",
+        },
+        "surviving_extents": {
+            "count": surviving_extents,
+            "label": "Candidates with surviving extents (recoverable)",
+            "type": "fact",
+            "description": "Inodes retaining valid extent headers and block pointers on disk.",
+        },
+        "cleared_pointers": {
+            "count": cleared_pointers,
+            "label": "Inodes with cleared pointers (not recoverable)",
+            "type": "fact",
+            "description": "Inodes whose size or block pointers were zeroed out by the filesystem upon deletion.",
+        },
+    }
+
+    total_candidates = total_scanned
+    recoverable = surviving_extents
     fully_recovered = sum(1 for r in recoveries if r.status == "FULL")
-    partially_recovered = sum(1 for r in recoveries if r.status == "PARTIAL")
-    failed = sum(1 for r in recoveries if r.status == "FAILED")
+    partially_recovered = sum(1 for r in recoveries if r.status in ("PARTIAL", "partial_unwritten"))
+    failed = sum(1 for r in recoveries if r.status in ("FAILED", "not_recoverable"))
 
     # --- Executive summary (plain language) ---------------------------------
     exec_bullets = [
         f"The evidence examined is: {Path(scan.evidence_path).name} ({_format_size(Path(scan.evidence_path).stat().st_size if Path(scan.evidence_path).exists() else None)}).",
         f"Digital fingerprint (SHA-256) was recorded before and after analysis. Result: {integrity_result}.",
-        f"{total_candidates} deleted file record{'s were' if total_candidates != 1 else ' was'} identified. Of these, {recoverable} {'appear' if recoverable != 1 else 'appears'} recoverable.",
+        f"{total_scanned} candidate records scanned [Fact].",
+        f"{valid_deletion_records} records identified as plausible deletions [Tool inference]; {orphan_uncertain_records} records flagged as orphan or uncertain [Tool inference].",
+        f"{surviving_extents} candidate file(s) have surviving extents and appear recoverable [Fact]; {cleared_pointers} record(s) had cleared data pointers and are not recoverable [Fact].",
         f"{fully_recovered} file{'s were' if fully_recovered != 1 else ' was'} fully recovered. {partially_recovered} {'were' if partially_recovered != 1 else 'was'} partly recovered.",
         "All recovered files are copies only. The original evidence was not changed.",
         f"Analysis was conducted using {TOOL_NAME} version {TOOL_VERSION}.",
@@ -223,6 +272,8 @@ def build_report(
             "failed_recovery": failed,
             "executive_bullets": exec_bullets,
         },
+
+        "candidate_summary": candidate_summary,
 
         "findings": findings,
 
