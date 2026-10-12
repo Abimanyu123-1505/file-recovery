@@ -85,8 +85,13 @@ def recover_files(
             file_path = candidate.get("path")
             name_source = candidate.get("name_source", "none")
 
-            status_map = {"FULL": "FULL", "PARTIAL": "PARTIAL"}
+            status_map = {
+                "FULL": "FULL",
+                "PARTIAL": "PARTIAL",
+                "not_recoverable": "not_recoverable",
+            }
             status = status_map.get(v.get("status", ""), "FAILED")
+            reason = v.get("reason")
 
             rec = Recovery(
                 scan_id=scan_id,
@@ -123,6 +128,7 @@ def recover_files(
                 "output_path": str(output_path),
                 "name_source": name_source,
                 "duplicate_of_inode": duplicate_of,
+                "reason": reason,
                 "error": None,
             })
 

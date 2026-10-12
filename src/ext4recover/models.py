@@ -12,6 +12,8 @@ class Candidate:
     file_type: str
     name: str | None = None
     path: str | None = None
+    recoverable: int = 1
+    not_recoverable_reason: str | None = None
 
     def json(self) -> dict[str, Any]:
         return asdict(self)
@@ -25,6 +27,7 @@ class Validation:
     signature: str
     signature_valid: bool
     status: str
+    reason: str | None = None
 
     def json(self) -> dict[str, Any]:
         return asdict(self)

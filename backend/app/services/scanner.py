@@ -234,8 +234,9 @@ def _run_scan_sync(scan_id: int, evidence_path: str, case_output_dir: str) -> No
                 "name_source": src,
                 "name_confidence": name_confidence,
                 "name_confidence_label": name_confidence_label,
-                "name_confidence_note": name_confidence_note,
-                "can_recover": candidate.size > 0,
+                "can_recover": bool(candidate.size and candidate.size > 0),
+                "recoverable": 1 if (candidate.size and candidate.size > 0) else 0,
+                "not_recoverable_reason": None if (candidate.size and candidate.size > 0) else "inode size and data pointers were cleared by the filesystem",
             })
 
         scan = db.get(Scan, scan_id)
